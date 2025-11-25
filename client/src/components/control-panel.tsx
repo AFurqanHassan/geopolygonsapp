@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { CSVPoint, Polygon } from "@shared/schema";
 import concaveman from "concaveman";
-import shpwrite from "shp-write";
+import shpwrite from "@mapbox/shp-write";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
@@ -82,10 +82,10 @@ export function ControlPanel({
           }
 
           // Verify all coordinates are valid numbers
-          const validHull = hull.every(coord => 
-            Array.isArray(coord) && 
-            coord.length === 2 && 
-            Number.isFinite(coord[0]) && 
+          const validHull = hull.every(coord =>
+            Array.isArray(coord) &&
+            coord.length === 2 &&
+            Number.isFinite(coord[0]) &&
             Number.isFinite(coord[1])
           );
 
@@ -151,7 +151,7 @@ export function ControlPanel({
           const coords = [...polygon.coordinates];
           const firstCoord = coords[0];
           const lastCoord = coords[coords.length - 1];
-          
+
           // Close the ring if not already closed
           if (firstCoord[0] !== lastCoord[0] || firstCoord[1] !== lastCoord[1]) {
             coords.push([...firstCoord]);
@@ -189,6 +189,7 @@ export function ControlPanel({
         },
       };
 
+      console.log("Attempting shapefile export with", features.length, "features");
       shpwrite.download(geojson, options);
 
       toast({
@@ -196,9 +197,78 @@ export function ControlPanel({
         description: "Shapefile download has been initiated",
       });
     } catch (error: any) {
+      console.error("Shapefile export error:", error);
       toast({
         title: "Export failed",
-        description: error.message || "Failed to export shapefile",
+        description: error.message || "Failed to export shapefile. Try GeoJSON export instead.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleExportGeoJSON = () => {
+    if (polygons.length === 0) {
+      toast({
+        title: "No polygons",
+        description: "Please generate polygons first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Convert polygons to GeoJSON features
+      const features = polygons
+        .filter(polygon => polygon.coordinates.length >= 3)
+        .map(polygon => {
+          const coords = [...polygon.coordinates];
+          const firstCoord = coords[0];
+          const lastCoord = coords[coords.length - 1];
+
+          if (firstCoord[0] !== lastCoord[0] || firstCoord[1] !== lastCoord[1]) {
+            coords.push([...firstCoord]);
+          }
+
+          return {
+            type: "Feature" as const,
+            geometry: {
+              type: "Polygon" as const,
+              coordinates: [coords],
+            },
+            properties: {
+              activityGroupId: polygon.activityGroupId,
+              id: polygon.id,
+              pointCount: polygon.properties?.pointCount ?? 0,
+            },
+          };
+        });
+
+      const geojson = {
+        type: "FeatureCollection" as const,
+        features,
+      };
+
+      // Create and download GeoJSON file
+      const geojsonStr = JSON.stringify(geojson, null, 2);
+      const blob = new Blob([geojsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `geopolygons-${new Date().toISOString().split('T')[0]}.geojson`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Export successful",
+        description: `Downloaded ${features.length} polygon${features.length !== 1 ? 's' : ''} as GeoJSON`,
+      });
+    } catch (error: any) {
+      console.error("GeoJSON export error:", error);
+      toast({
+        title: "Export failed",
+        description: error.message || "Failed to export GeoJSON",
         variant: "destructive",
       });
     }
@@ -280,7 +350,7 @@ export function ControlPanel({
         <div className="space-y-2">
           <h2 className="text-lg font-semibold text-foreground">Export</h2>
           <p className="text-sm text-muted-foreground">
-            Download polygons as shapefile
+            Download polygons as Shapefile or GeoJSON
           </p>
         </div>
 
@@ -295,11 +365,22 @@ export function ControlPanel({
           Export Shapefile
         </Button>
 
+        <Button
+          onClick={handleExportGeoJSON}
+          disabled={polygons.length === 0}
+          variant="outline"
+          className="w-full"
+          data-testid="button-export-geojson"
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Export GeoJSON
+        </Button>
+
         {polygons.length > 0 && (
           <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
             <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <p>
-              Exports {polygons.length} polygon{polygons.length !== 1 ? 's' : ''} as .shp, .shx, .dbf, and .prj files
+              Shapefile: .shp, .shx, .dbf, .prj files | GeoJSON: single .geojson file
             </p>
           </div>
         )}
