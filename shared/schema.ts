@@ -1,18 +1,41 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+// CSV Point Schema
+export const csvPointSchema = z.object({
+  id: z.string(),
+  longitude: z.number(),
+  latitude: z.number(),
+  activityGroupId: z.string(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export type CSVPoint = z.infer<typeof csvPointSchema>;
+
+// Polygon Schema
+export const polygonSchema = z.object({
+  id: z.string(),
+  activityGroupId: z.string(),
+  coordinates: z.array(z.tuple([z.number(), z.number()])),
+  properties: z.record(z.unknown()).optional(),
 });
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export type Polygon = z.infer<typeof polygonSchema>;
+
+// GeoJSON Feature Schema for export
+export const geoJSONFeatureSchema = z.object({
+  type: z.literal("Feature"),
+  geometry: z.object({
+    type: z.literal("Polygon"),
+    coordinates: z.array(z.array(z.tuple([z.number(), z.number()]))),
+  }),
+  properties: z.record(z.unknown()),
+});
+
+export type GeoJSONFeature = z.infer<typeof geoJSONFeatureSchema>;
+
+// GeoJSON FeatureCollection Schema
+export const geoJSONFeatureCollectionSchema = z.object({
+  type: z.literal("FeatureCollection"),
+  features: z.array(geoJSONFeatureSchema),
+});
+
+export type GeoJSONFeatureCollection = z.infer<typeof geoJSONFeatureCollectionSchema>;

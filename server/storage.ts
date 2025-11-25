@@ -1,37 +1,47 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { type CSVPoint, type Polygon } from "@shared/schema";
 
-// modify the interface with any CRUD methods
-// you might need
+// Storage interface for geospatial data
+// Note: This app primarily uses client-side processing
+// Backend storage is optional for future features
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  // CSV Points
+  savePoints(points: CSVPoint[]): Promise<void>;
+  getPoints(): Promise<CSVPoint[]>;
+  clearPoints(): Promise<void>;
+  
+  // Polygons
+  savePolygons(polygons: Polygon[]): Promise<void>;
+  getPolygons(): Promise<Polygon[]>;
+  clearPolygons(): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
-  private users: Map<string, User>;
+  private points: CSVPoint[] = [];
+  private polygons: Polygon[] = [];
 
-  constructor() {
-    this.users = new Map();
+  async savePoints(points: CSVPoint[]): Promise<void> {
+    this.points = points;
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getPoints(): Promise<CSVPoint[]> {
+    return this.points;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+  async clearPoints(): Promise<void> {
+    this.points = [];
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async savePolygons(polygons: Polygon[]): Promise<void> {
+    this.polygons = polygons;
+  }
+
+  async getPolygons(): Promise<Polygon[]> {
+    return this.polygons;
+  }
+
+  async clearPolygons(): Promise<void> {
+    this.polygons = [];
   }
 }
 
