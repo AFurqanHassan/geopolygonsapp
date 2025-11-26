@@ -55,12 +55,24 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
                 return;
               }
 
-              points.push({
+              // Create point with all CSV columns preserved
+              const point: CSVPoint = {
                 id: `point-${index}`,
                 longitude,
                 latitude,
                 activityGroupId: String(activityGroupId).trim() || "default",
-              });
+                // Include all other columns from the CSV
+                ...Object.keys(row).reduce((acc, key) => {
+                  // Skip the columns we've already processed
+                  const normalizedKey = key.toLowerCase();
+                  if (!['longitude', 'lon', 'lng', 'x', 'latitude', 'lat', 'y', 'activitygroupid', 'groupid', 'group'].includes(normalizedKey)) {
+                    acc[key] = row[key];
+                  }
+                  return acc;
+                }, {} as Record<string, any>)
+              };
+
+              points.push(point);
             });
 
             if (points.length === 0) {
@@ -147,7 +159,7 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-foreground">Upload CSV</h2>
         <p className="text-sm text-muted-foreground">
-          CSV should contain: longitude, latitude, ActivityGroupId
+          CSV should contain: longitude, latitude, and any grouping columns (e.g., ActivityGroupId, FirstName, etc.)
         </p>
       </div>
 
@@ -172,7 +184,7 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           data-testid="input-file"
         />
-        
+
         <div className="flex flex-col items-center gap-3 pointer-events-none">
           <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
             <Upload className="w-6 h-6 text-primary" />

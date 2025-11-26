@@ -1,3 +1,4 @@
+import React from "react";
 import { useState, useEffect } from "react";
 import { CSVPoint, Polygon } from "@shared/schema";
 import concaveman from "concaveman";
@@ -5,6 +6,13 @@ import shpwrite from "@mapbox/shp-write";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Download, Shapes, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -37,6 +45,25 @@ export function ControlPanel({
     }
   }, [points.length, lastGeneratedCount, onResetState]);
 
+  const [groupField, setGroupField] = useState<string>('activityGroupId');
+
+  // Extract available columns from the first point (if available)
+  const availableColumns = React.useMemo(() => {
+    if (points.length === 0) return ['activityGroupId'];
+
+    const firstPoint = points[0];
+    const columns = Object.keys(firstPoint).filter(
+      key => !['id', 'longitude', 'latitude'].includes(key)
+    );
+
+    // Ensure activityGroupId is always available as default
+    if (!columns.includes('activityGroupId')) {
+      columns.unshift('activityGroupId');
+    }
+
+    return columns;
+  }, [points]);
+
   const handleGeneratePolygons = () => {
     if (points.length === 0) {
       toast({
@@ -50,18 +77,18 @@ export function ControlPanel({
     setIsGenerating(true);
 
     try {
-      // Group points by ActivityGroupId
+      // Group points by the selected field (groupField)
       const groupedPoints = new Map<string, CSVPoint[]>();
       points.forEach(point => {
-        if (!groupedPoints.has(point.activityGroupId)) {
-          groupedPoints.set(point.activityGroupId, []);
-        }
-        groupedPoints.get(point.activityGroupId)!.push(point);
+        const key = String((point as any)[groupField] ?? 'undefined');
+        const existing = groupedPoints.get(key) ?? [];
+        existing.push(point);
+        groupedPoints.set(key, existing);
       });
 
       const generatedPolygons: Polygon[] = [];
 
-      // Generate concave hull for each group
+      // Generate a concave hull for each group
       groupedPoints.forEach((groupPoints, groupId) => {
         if (groupPoints.length < 3) {
           console.warn(`Group ${groupId} has less than 3 points, skipping polygon generation`);
@@ -72,10 +99,9 @@ export function ControlPanel({
         const coordinates: [number, number][] = groupPoints.map(p => [p.longitude, p.latitude]);
 
         try {
-          // Generate concave hull
           const hull = concaveman(coordinates, concavity, 0);
 
-          // Validate hull has at least 3 vertices before storing
+          // Validate hull has at least 3 vertices
           if (hull.length < 3) {
             console.warn(`Group ${groupId} generated invalid hull with ${hull.length} vertices, skipping`);
             return;
@@ -88,20 +114,44 @@ export function ControlPanel({
             Number.isFinite(coord[0]) &&
             Number.isFinite(coord[1])
           );
-
           if (!validHull) {
             console.warn(`Group ${groupId} generated hull with invalid coordinates, skipping`);
             return;
           }
 
+          // Aggregate all CSV attributes from the points in this group
+          const aggregatedProperties: Record<string, any> = {
+            groupId,
+            pointCount: groupPoints.length,
+          };
+
+          // Collect all unique attributes from the points
+          // For each attribute, if all points have the same value, use it
+          // Otherwise, collect unique values or use the first value
+          const firstPoint = groupPoints[0];
+          Object.keys(firstPoint).forEach(key => {
+            // Skip coordinate and id fields
+            if (['id', 'longitude', 'latitude'].includes(key)) return;
+
+            // Check if all points have the same value for this attribute
+            const values = groupPoints.map(p => (p as any)[key]);
+            const uniqueValues = Array.from(new Set(values));
+
+            if (uniqueValues.length === 1) {
+              // All points have the same value
+              aggregatedProperties[key] = uniqueValues[0];
+            } else {
+              // Multiple values - store the first one and add a count
+              aggregatedProperties[key] = uniqueValues[0];
+              aggregatedProperties[`${key}_unique_count`] = uniqueValues.length;
+            }
+          });
+
           generatedPolygons.push({
             id: `polygon-${groupId}`,
             activityGroupId: groupId,
             coordinates: hull as [number, number][],
-            properties: {
-              groupId,
-              pointCount: groupPoints.length,
-            },
+            properties: aggregatedProperties,
           });
         } catch (err) {
           console.error(`Failed to generate polygon for group ${groupId}:`, err);
@@ -164,10 +214,10 @@ export function ControlPanel({
               coordinates: [coords],
             },
             properties: {
-              // Only export whitelisted properties for security and predictability
+              // Export all properties from the polygon (includes all CSV attributes)
               activityGroupId: polygon.activityGroupId,
               id: polygon.id,
-              pointCount: polygon.properties?.pointCount ?? 0,
+              ...(polygon.properties || {}),
             },
           };
         });
@@ -187,6 +237,8 @@ export function ControlPanel({
         types: {
           polygon: "polygons",
         },
+        compression: "DEFLATE" as const,
+        outputType: "blob" as const,
       };
 
       console.log("Attempting shapefile export with", features.length, "features");
@@ -236,9 +288,10 @@ export function ControlPanel({
               coordinates: [coords],
             },
             properties: {
+              // Export all properties from the polygon (includes all CSV attributes)
               activityGroupId: polygon.activityGroupId,
               id: polygon.id,
-              pointCount: polygon.properties?.pointCount ?? 0,
+              ...(polygon.properties || {}),
             },
           };
         });
@@ -276,68 +329,73 @@ export function ControlPanel({
 
   return (
     <div className="space-y-6">
-      <Separator />
-
       {/* Polygon Generation Section */}
       <div className="space-y-4">
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold text-foreground">Polygon Settings</h2>
+          <h2 className="text-lg font-semibold text-foreground">Generate Polygons</h2>
           <p className="text-sm text-muted-foreground">
-            Configure concavity for polygon generation
+            Adjust concavity and generate polygons from your data
           </p>
         </div>
 
-        <div className="space-y-3">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-foreground">
-                Concavity
-              </label>
-              <span className="text-sm font-mono text-muted-foreground" data-testid="text-concavity-value">
-                {concavity.toFixed(1)}
-              </span>
-            </div>
-            <Slider
-              value={[concavity]}
-              onValueChange={([value]) => onConcavityChange(value)}
-              min={1}
-              max={5}
-              step={0.1}
-              className="w-full"
-              data-testid="slider-concavity"
-            />
-            <p className="text-xs text-muted-foreground">
-              Lower = tighter fit, Higher = smoother polygon
-            </p>
-          </div>
-
-          <Button
-            onClick={handleGeneratePolygons}
-            disabled={points.length === 0 || isGenerating}
-            className="w-full"
-            data-testid="button-generate-polygons"
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">
+            Group By Column
+          </label>
+          <Select
+            value={groupField}
+            onValueChange={setGroupField}
+            disabled={points.length === 0}
           >
-            {isGenerating ? (
-              <>
-                <div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin mr-2" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Shapes className="w-4 h-4 mr-2" />
-                Generate Polygons
-              </>
-            )}
-          </Button>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select a column" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableColumns.map((column) => (
+                <SelectItem key={column} value={column}>
+                  {column}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Select which column to use for grouping points into polygons
+          </p>
         </div>
 
-        {points.length > 0 && (
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p data-testid="text-point-count">
-              {points.length} point{points.length !== 1 ? 's' : ''} loaded
-            </p>
-            <p data-testid="text-group-count">
-              {new Set(points.map(p => p.activityGroupId)).size} unique group{new Set(points.map(p => p.activityGroupId)).size !== 1 ? 's' : ''}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">
+            Concavity: {concavity.toFixed(2)}
+          </label>
+          <Slider
+            value={[concavity]}
+            onValueChange={(values) => onConcavityChange(values[0])}
+            min={1}
+            max={3}
+            step={0.1}
+            className="w-full"
+            disabled={points.length === 0}
+          />
+          <p className="text-xs text-muted-foreground">
+            Lower values create tighter polygons, higher values create looser ones
+          </p>
+        </div>
+
+        <Button
+          onClick={handleGeneratePolygons}
+          disabled={points.length === 0 || isGenerating}
+          className="w-full"
+          data-testid="button-generate-polygons"
+        >
+          <Shapes className="w-4 h-4 mr-2" />
+          {isGenerating ? "Generating..." : "Generate Polygons"}
+        </Button>
+
+        {lastGeneratedCount > 0 && (
+          <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
+            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <p>
+              Generated {lastGeneratedCount} polygon{lastGeneratedCount !== 1 ? 's' : ''} from {points.length} point{points.length !== 1 ? 's' : ''}
             </p>
           </div>
         )}
@@ -385,6 +443,6 @@ export function ControlPanel({
           </div>
         )}
       </div>
-    </div>
+    </div >
   );
 }

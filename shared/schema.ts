@@ -1,12 +1,12 @@
 import { z } from "zod";
 
-// CSV Point Schema
+// CSV Point Schema - allows additional dynamic fields from CSV
 export const csvPointSchema = z.object({
   id: z.string(),
   longitude: z.number(),
   latitude: z.number(),
   activityGroupId: z.string(),
-});
+}).passthrough(); // Allow additional fields from CSV
 
 export type CSVPoint = z.infer<typeof csvPointSchema>;
 
