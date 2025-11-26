@@ -88,7 +88,7 @@ export default async function runApp(
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen({
     port,
-    host: "127.0.0.1",
+    host: "0.0.0.0", // Listen on all network interfaces for cloud deployment
   }, () => {
     log(`serving on port ${port}`);
   });
