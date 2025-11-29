@@ -58,11 +58,11 @@ export function ControlPanel({
     };
   }, []);
 
-  const [groupField, setGroupField] = useState<string>('ActivityGroupId');
+  const [groupField, setGroupField] = useState<string>('activityGroupId');
 
   // Extract available columns from the first point (if available)
   const availableColumns = React.useMemo(() => {
-    if (points.length === 0) return ['ActivityGroupId'];
+    if (points.length === 0) return ['activityGroupId'];
 
     const firstPoint = points[0];
     const columns = Object.keys(firstPoint).filter(
@@ -70,8 +70,8 @@ export function ControlPanel({
     );
 
     // Ensure activityGroupId is always available as default
-    if (!columns.includes('ActivityGroupId')) {
-      columns.unshift('ActivityGroupId');
+    if (!columns.includes('activityGroupId')) {
+      columns.unshift('activityGroupId');
     }
 
     return columns;

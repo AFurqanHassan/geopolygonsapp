@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { CSVPoint, Polygon } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
 // Fix Leaflet default icon paths for Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -72,6 +73,8 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
     };
   }, []);
 
+  const { toast } = useToast();
+
   // Update points
   useEffect(() => {
     if (!mapRef.current || !pointLayersRef.current) return;
@@ -81,7 +84,29 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
     if (showPoints && points.length > 0) {
       const bounds = L.latLngBounds([]);
 
-      points.forEach(point => {
+      // Limit rendered points to prevent crash
+      const RENDER_LIMIT = 15000;
+      const pointsToRender = points.slice(0, RENDER_LIMIT);
+
+      if (points.length > RENDER_LIMIT) {
+        // Debounce toast to avoid spamming on every render
+        const toastId = "map-limit-toast";
+        // We can't easily debounce here without extra state/refs, but this effect runs on points change
+        // so it should be fine to just show it once per data load
+        setTimeout(() => {
+          // Simple check to avoid spamming if already visible (not perfect but helpful)
+          const existingToasts = document.querySelectorAll('[data-radix-toast-announce]');
+          if (existingToasts.length === 0) {
+            toast({
+              title: "Map Rendering Limited",
+              description: `Showing first ${RENDER_LIMIT.toLocaleString()} of ${points.length.toLocaleString()} points to prevent browser crash. All points are still available for polygon generation.`,
+              variant: "default",
+            });
+          }
+        }, 500);
+      }
+
+      pointsToRender.forEach(point => {
         if (selectedGroupIds.size > 0 && !selectedGroupIds.has(point.activityGroupId)) {
           return;
         }
@@ -115,7 +140,7 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
         mapRef.current.fitBounds(bounds, { padding: [50, 50] });
       }
     }
-  }, [points, showPoints, selectedGroupIds]);
+  }, [points, showPoints, selectedGroupIds, toast]);
 
   // Update polygons
   useEffect(() => {
@@ -130,7 +155,7 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
         }
 
         const color = getColorForGroupId(polygon.activityGroupId);
-        
+
         // Convert [lng, lat] to [lat, lng] for Leaflet
         const latLngs = polygon.coordinates.map(coord => [coord[1], coord[0]] as [number, number]);
 
@@ -159,8 +184,8 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
   }, [polygons, showPolygons, selectedGroupIds]);
 
   return (
-    <div 
-      ref={mapContainerRef} 
+    <div
+      ref={mapContainerRef}
       className="w-full h-full"
       data-testid="map-container"
     />

@@ -20,7 +20,7 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [progress, setProgress] = useState(0);
   const [rowsProcessed, setRowsProcessed] = useState(0);
-  const [accumulatedPoints, setAccumulatedPoints] = useState<CSVPoint[]>([]);
+
   const { toast } = useToast();
   const workerRef = useRef<Worker | null>(null);
 
@@ -41,7 +41,7 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
       setErrorMessage("");
       setProgress(0);
       setRowsProcessed(0);
-      setAccumulatedPoints([]);
+
 
       // Terminate existing worker if any
       if (workerRef.current) {
@@ -55,24 +55,34 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
       );
       workerRef.current = worker;
 
+      // Accumulate points locally to avoid state updates during processing
+      let accumulatedPoints: CSVPoint[] = [];
+
       worker.onmessage = (event) => {
         const { type } = event.data;
 
-        if (type === 'progress') {
-          const { rowsProcessed: rows, points } = event.data;
+        if (type === 'chunk') {
+          const { points, rowsProcessed } = event.data;
+          // Efficiently push chunk to accumulator
+          // Using push with spread can stack overflow for very large chunks, so we iterate
+          for (let i = 0; i < points.length; i++) {
+            accumulatedPoints.push(points[i]);
+          }
+
+          setRowsProcessed(rowsProcessed);
+          // Estimate progress (assuming ~1M rows max for progress bar scaling, or just use a log scale)
+          // If we don't know total, we can just increment or loop 0-95
+          const estimatedProgress = Math.min(95, (rowsProcessed / 1000000) * 100);
+          setProgress(estimatedProgress);
+        } else if (type === 'progress') {
+          const { rowsProcessed: rows } = event.data;
           setRowsProcessed(rows);
-          // Accumulate points from batches
-          setAccumulatedPoints(prev => [...prev, ...points]);
-          // Estimate progress based on file size processed
-          const estimatedProgress = Math.min(95, (rows / 10000) * 100); // Rough estimate
+          const estimatedProgress = Math.min(95, (rows / 1000000) * 100);
           setProgress(estimatedProgress);
         } else if (type === 'complete') {
-          const { points, errors } = event.data;
+          const { errors } = event.data;
 
-          // Combine accumulated points with final batch
-          const allPoints = [...accumulatedPoints, ...points];
-
-          if (allPoints.length === 0) {
+          if (accumulatedPoints.length === 0) {
             const errorMsg = `No valid points found. ${errors.length > 0 ? 'Issues: ' + errors.slice(0, 3).join('; ') : ''}`;
             setErrorMessage(errorMsg);
             setStatus("error");
@@ -88,16 +98,16 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
             const sampleErrors = errors.slice(0, 2);
             toast({
               title: "Partial load",
-              description: `${allPoints.length} points loaded. Skipped ${errors.length} invalid row(s). Examples: ${sampleErrors.join("; ")}`,
+              description: `${accumulatedPoints.length} points loaded. Skipped ${errors.length} invalid row(s). Examples: ${sampleErrors.join("; ")}`,
               variant: "default",
             });
           }
 
-          onPointsLoaded(allPoints);
+          onPointsLoaded(accumulatedPoints);
           setStatus("success");
           setIsProcessing(false);
           setProgress(100);
-          setRowsProcessed(allPoints.length);
+          setRowsProcessed(accumulatedPoints.length);
 
           // Cleanup
           worker.terminate();
@@ -135,7 +145,7 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
         file,
       });
     },
-    [onPointsLoaded, onError, toast, accumulatedPoints]
+    [onPointsLoaded, onError, toast]
   );
 
 

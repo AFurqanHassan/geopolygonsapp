@@ -24,6 +24,12 @@ export interface CSVWorkerError {
     message: string;
 }
 
+export interface CSVWorkerChunk {
+    type: 'chunk';
+    points: CSVPoint[];
+    rowsProcessed: number;
+}
+
 export interface CSVPoint {
     id: string;
     longitude: number;
@@ -35,7 +41,7 @@ export interface CSVPoint {
 let rowIndex = 0;
 let pointsBuffer: CSVPoint[] = [];
 let errorsBuffer: string[] = [];
-const BATCH_SIZE = 1000; // Report progress every 1000 rows
+const CHUNK_SIZE = 25000; // Send data to main thread every 25k rows
 
 self.onmessage = async (event: MessageEvent<CSVWorkerMessage>) => {
     const { type, file } = event.data;
@@ -96,35 +102,41 @@ self.onmessage = async (event: MessageEvent<CSVWorkerMessage>) => {
                 pointsBuffer.push(point);
                 rowIndex++;
 
-                // Report progress every BATCH_SIZE rows
-                if (pointsBuffer.length >= BATCH_SIZE) {
+                // Send chunk to main thread if buffer is large enough
+                if (pointsBuffer.length >= CHUNK_SIZE) {
+                    self.postMessage({
+                        type: 'chunk',
+                        points: pointsBuffer,
+                        rowsProcessed: rowIndex,
+                    } as CSVWorkerChunk);
+                    pointsBuffer = []; // Clear buffer after sending
+                }
+
+                // Report progress periodically (optional, can just use chunk updates)
+                if (rowIndex % 10000 === 0) {
                     self.postMessage({
                         type: 'progress',
                         rowsProcessed: rowIndex,
-                        points: [...pointsBuffer], // Send copy of current batch
+                        points: [],
                     } as CSVWorkerProgress);
-                    pointsBuffer = []; // Clear buffer after sending
                 }
             });
         },
         complete: () => {
-            // Send any remaining points in buffer
-            const allPoints = [...pointsBuffer];
-
-            if (allPoints.length === 0 && errorsBuffer.length > 0) {
-                // All rows failed
-                const sampleErrors = errorsBuffer.slice(0, 3);
-                const errorSummary = sampleErrors.join("; ") + (errorsBuffer.length > 3 ? ` ...and ${errorsBuffer.length - 3} more` : "");
+            // Send any remaining points
+            if (pointsBuffer.length > 0) {
                 self.postMessage({
-                    type: 'error',
-                    message: `No valid points found. Issues: ${errorSummary}`,
-                } as CSVWorkerError);
-                return;
+                    type: 'chunk',
+                    points: pointsBuffer,
+                    rowsProcessed: rowIndex,
+                } as CSVWorkerChunk);
+                pointsBuffer = [];
             }
 
+            // Send complete message (no points, just status)
             self.postMessage({
                 type: 'complete',
-                points: allPoints,
+                points: [], // Points already sent in chunks
                 errors: errorsBuffer,
             } as CSVWorkerComplete);
         },

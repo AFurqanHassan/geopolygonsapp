@@ -16,7 +16,7 @@ export default function MapPage() {
   const [showPolygons, setShowPolygons] = useState(true);
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   const uniqueGroupIds = Array.from(new Set(points.map(p => p.activityGroupId)));
 
@@ -24,7 +24,7 @@ export default function MapPage() {
     <div className="flex h-screen w-full overflow-hidden bg-background">
       {/* Left Sidebar - Control Panel */}
       {leftPanelOpen && (
-        <aside 
+        <aside
           className="w-80 transition-all duration-200 border-r border-border bg-card flex flex-col overflow-hidden"
           data-testid="sidebar-left"
         >
@@ -39,7 +39,7 @@ export default function MapPage() {
                 </p>
               </div>
 
-              <FileUpload 
+              <FileUpload
                 onPointsLoaded={setPoints}
                 onError={(error: string) => console.error(error)}
                 onClearData={() => {
@@ -90,7 +90,7 @@ export default function MapPage() {
               </Button>
             )}
           </div>
-          
+
           <div className="flex items-center gap-2">
             <Button
               size="sm"
@@ -147,7 +147,7 @@ export default function MapPage() {
             showPolygons={showPolygons}
             selectedGroupIds={selectedGroupIds}
           />
-          
+
           {/* Legend Overlay */}
           {uniqueGroupIds.length > 0 && (
             <div className="absolute bottom-4 right-4 z-[1000]">
@@ -172,7 +172,7 @@ export default function MapPage() {
 
       {/* Right Sidebar - Data Table */}
       {rightPanelOpen && (
-        <aside 
+        <aside
           className="w-96 transition-all duration-200 border-l border-border bg-card flex flex-col overflow-hidden"
           data-testid="sidebar-right"
         >

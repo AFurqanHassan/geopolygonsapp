@@ -13,15 +13,18 @@ export function DataTable({ points }: DataTableProps) {
 
   const filteredPoints = useMemo(() => {
     if (!searchTerm) return points;
-    
+
     const term = searchTerm.toLowerCase();
-    return points.filter(point => 
+    return points.filter(point =>
       point.id.toLowerCase().includes(term) ||
       point.activityGroupId.toLowerCase().includes(term) ||
       point.latitude.toString().includes(term) ||
       point.longitude.toString().includes(term)
     );
   }, [points, searchTerm]);
+
+  const RENDER_LIMIT = 1000;
+  const displayPoints = filteredPoints.slice(0, RENDER_LIMIT);
 
   return (
     <div className="flex flex-col h-full">
@@ -30,7 +33,10 @@ export function DataTable({ points }: DataTableProps) {
         <div>
           <h2 className="text-lg font-semibold text-foreground">Data Table</h2>
           <p className="text-sm text-muted-foreground" data-testid="text-data-count">
-            {filteredPoints.length} of {points.length} point{points.length !== 1 ? 's' : ''}
+            {filteredPoints.length > RENDER_LIMIT
+              ? `Showing first ${RENDER_LIMIT.toLocaleString()} of ${points.length.toLocaleString()} points`
+              : `${filteredPoints.length} of ${points.length} point${points.length !== 1 ? 's' : ''}`
+            }
           </p>
         </div>
 
@@ -89,8 +95,8 @@ export function DataTable({ points }: DataTableProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredPoints.map((point, index) => (
-                <tr 
+              {displayPoints.map((point, index) => (
+                <tr
                   key={point.id}
                   className={`${index % 2 === 0 ? 'bg-background' : 'bg-card/50'} hover-elevate`}
                   data-testid={`row-point-${index}`}
