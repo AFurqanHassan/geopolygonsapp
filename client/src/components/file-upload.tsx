@@ -1,9 +1,9 @@
-import { useCallback, useState } from "react";
-import Papa from "papaparse";
+import { useCallback, useState, useRef, useEffect } from "react";
 import { CSVPoint } from "@shared/schema";
 import { Upload, FileText, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 
 interface FileUploadProps {
@@ -18,103 +18,126 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
   const [isProcessing, setIsProcessing] = useState(false);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [progress, setProgress] = useState(0);
+  const [rowsProcessed, setRowsProcessed] = useState(0);
+  const [accumulatedPoints, setAccumulatedPoints] = useState<CSVPoint[]>([]);
   const { toast } = useToast();
+  const workerRef = useRef<Worker | null>(null);
+
+  // Cleanup worker on unmount
+  useEffect(() => {
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+    };
+  }, []);
 
   const processCSV = useCallback(
     (file: File) => {
       setIsProcessing(true);
       setStatus("idle");
       setErrorMessage("");
+      setProgress(0);
+      setRowsProcessed(0);
+      setAccumulatedPoints([]);
 
-      Papa.parse(file, {
-        header: true,
-        dynamicTyping: false, // Disable to get predictable string values
-        skipEmptyLines: true,
-        complete: (results) => {
-          try {
-            const points: CSVPoint[] = [];
-            const errors: string[] = [];
+      // Terminate existing worker if any
+      if (workerRef.current) {
+        workerRef.current.terminate();
+      }
 
-            results.data.forEach((row: any, index: number) => {
-              // Try different common column name variations
-              const longitudeRaw = row.longitude ?? row.Longitude ?? row.lon ?? row.Lon ?? row.lng ?? row.x;
-              const latitudeRaw = row.latitude ?? row.Latitude ?? row.lat ?? row.Lat ?? row.y;
-              const activityGroupId = row.ActivityGroupId ?? row.activityGroupId ?? row.GroupId ?? row.groupId ?? row.group ?? "default";
+      // Create new worker
+      const worker = new Worker(
+        new URL('../workers/csv.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
+      workerRef.current = worker;
 
-              // Normalize numeric strings (handle locale formats, whitespace)
-              const normalizeLongRaw = String(longitudeRaw || "").trim().replace(/,/g, '.');
-              const normalizeLatRaw = String(latitudeRaw || "").trim().replace(/,/g, '.');
+      worker.onmessage = (event) => {
+        const { type } = event.data;
 
-              // Force number conversion and validate
-              const longitude = Number(normalizeLongRaw);
-              const latitude = Number(normalizeLatRaw);
+        if (type === 'progress') {
+          const { rowsProcessed: rows, points } = event.data;
+          setRowsProcessed(rows);
+          // Accumulate points from batches
+          setAccumulatedPoints(prev => [...prev, ...points]);
+          // Estimate progress based on file size processed
+          const estimatedProgress = Math.min(95, (rows / 10000) * 100); // Rough estimate
+          setProgress(estimatedProgress);
+        } else if (type === 'complete') {
+          const { points, errors } = event.data;
 
-              // Skip invalid rows but continue processing others
-              if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-                errors.push(`Row ${index + 1}: Invalid coordinates (longitude="${longitudeRaw}", latitude="${latitudeRaw}")`);
-                return;
-              }
+          // Combine accumulated points with final batch
+          const allPoints = [...accumulatedPoints, ...points];
 
-              // Create point with all CSV columns preserved
-              const point: CSVPoint = {
-                id: `point-${index}`,
-                longitude,
-                latitude,
-                activityGroupId: String(activityGroupId).trim() || "default",
-                // Include all other columns from the CSV
-                ...Object.keys(row).reduce((acc, key) => {
-                  // Skip the columns we've already processed
-                  const normalizedKey = key.toLowerCase();
-                  if (!['longitude', 'lon', 'lng', 'x', 'latitude', 'lat', 'y', 'activitygroupid', 'groupid', 'group'].includes(normalizedKey)) {
-                    acc[key] = row[key];
-                  }
-                  return acc;
-                }, {} as Record<string, any>)
-              };
-
-              points.push(point);
-            });
-
-            if (points.length === 0) {
-              // Show detailed error when all rows fail
-              const sampleErrors = errors.slice(0, 3);
-              const errorSummary = sampleErrors.join("; ") + (errors.length > 3 ? ` ...and ${errors.length - 3} more` : "");
-              throw new Error(`No valid points found. Issues: ${errorSummary}`);
-            }
-
-            // Show warning if some rows were skipped
-            if (errors.length > 0) {
-              console.warn("Skipped invalid rows:", errors);
-              const sampleErrors = errors.slice(0, 2);
-              toast({
-                title: "Partial load",
-                description: `${points.length} points loaded. Skipped ${errors.length} invalid row(s). Examples: ${sampleErrors.join("; ")}`,
-                variant: "default",
-              });
-            }
-
-            onPointsLoaded(points);
-            setStatus("success");
-            setIsProcessing(false);
-          } catch (err: any) {
-            const errorMsg = err.message || "Failed to parse CSV file";
+          if (allPoints.length === 0) {
+            const errorMsg = `No valid points found. ${errors.length > 0 ? 'Issues: ' + errors.slice(0, 3).join('; ') : ''}`;
             setErrorMessage(errorMsg);
             setStatus("error");
             onError(errorMsg);
             setIsProcessing(false);
+            setProgress(0);
+            return;
           }
-        },
-        error: (error) => {
-          const errorMsg = `CSV parsing error: ${error.message}`;
+
+          // Show warning if some rows were skipped
+          if (errors.length > 0) {
+            console.warn("Skipped invalid rows:", errors);
+            const sampleErrors = errors.slice(0, 2);
+            toast({
+              title: "Partial load",
+              description: `${allPoints.length} points loaded. Skipped ${errors.length} invalid row(s). Examples: ${sampleErrors.join("; ")}`,
+              variant: "default",
+            });
+          }
+
+          onPointsLoaded(allPoints);
+          setStatus("success");
+          setIsProcessing(false);
+          setProgress(100);
+          setRowsProcessed(allPoints.length);
+
+          // Cleanup
+          worker.terminate();
+          workerRef.current = null;
+        } else if (type === 'error') {
+          const errorMsg = event.data.message || "Failed to parse CSV file";
           setErrorMessage(errorMsg);
           setStatus("error");
           onError(errorMsg);
           setIsProcessing(false);
-        },
+          setProgress(0);
+
+          // Cleanup
+          worker.terminate();
+          workerRef.current = null;
+        }
+      };
+
+      worker.onerror = (error) => {
+        const errorMsg = `Worker error: ${error.message}`;
+        setErrorMessage(errorMsg);
+        setStatus("error");
+        onError(errorMsg);
+        setIsProcessing(false);
+        setProgress(0);
+
+        // Cleanup
+        worker.terminate();
+        workerRef.current = null;
+      };
+
+      // Start processing
+      worker.postMessage({
+        type: 'parse',
+        file,
       });
     },
-    [onPointsLoaded, onError]
+    [onPointsLoaded, onError, toast, accumulatedPoints]
   );
+
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -230,9 +253,12 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
 
       {/* Status Messages */}
       {isProcessing && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <span>Processing CSV file...</span>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>Processing CSV file...</span>
+            <span>{rowsProcessed.toLocaleString()} rows</span>
+          </div>
+          <Progress value={progress} className="w-full" />
         </div>
       )}
 

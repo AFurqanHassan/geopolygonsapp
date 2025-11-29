@@ -1,7 +1,6 @@
 import React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CSVPoint, Polygon } from "@shared/schema";
-import concaveman from "concaveman";
 import shpwrite from "@mapbox/shp-write";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -35,7 +34,11 @@ export function ControlPanel({
 }: ControlPanelProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [lastGeneratedCount, setLastGeneratedCount] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("");
+  const [groupsProcessed, setGroupsProcessed] = useState(0);
+  const [totalGroups, setTotalGroups] = useState(0);
   const { toast } = useToast();
+  const polygonWorkerRef = useRef<Worker | null>(null);
 
   // Reset state when points are cleared
   useEffect(() => {
@@ -45,7 +48,17 @@ export function ControlPanel({
     }
   }, [points.length, lastGeneratedCount, onResetState]);
 
-  const [groupField, setGroupField] = useState<string>('A ctivityGroupId');
+  // Cleanup worker on unmount
+  useEffect(() => {
+    return () => {
+      if (polygonWorkerRef.current) {
+        polygonWorkerRef.current.terminate();
+        polygonWorkerRef.current = null;
+      }
+    };
+  }, []);
+
+  const [groupField, setGroupField] = useState<string>('ActivityGroupId');
 
   // Extract available columns from the first point (if available)
   const availableColumns = React.useMemo(() => {
@@ -75,104 +88,86 @@ export function ControlPanel({
     }
 
     setIsGenerating(true);
+    setProgressMessage("");
+    setGroupsProcessed(0);
+    setTotalGroups(0);
 
-    try {
-      // Group points by the selected field (groupField)
-      const groupedPoints = new Map<string, CSVPoint[]>();
-      points.forEach(point => {
-        const key = String((point as any)[groupField] ?? 'undefined');
-        const existing = groupedPoints.get(key) ?? [];
-        existing.push(point);
-        groupedPoints.set(key, existing);
-      });
+    // Terminate existing worker if any
+    if (polygonWorkerRef.current) {
+      polygonWorkerRef.current.terminate();
+    }
 
-      const generatedPolygons: Polygon[] = [];
+    // Create new worker
+    const worker = new Worker(
+      new URL('../workers/polygon.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+    polygonWorkerRef.current = worker;
 
-      // Generate a concave hull for each group
-      groupedPoints.forEach((groupPoints, groupId) => {
-        if (groupPoints.length < 3) {
-          console.warn(`Group ${groupId} has less than 3 points, skipping polygon generation`);
-          return;
-        }
+    worker.onmessage = (event) => {
+      const { type } = event.data;
 
-        // Convert points to coordinate array for concaveman
-        const coordinates: [number, number][] = groupPoints.map(p => [p.longitude, p.latitude]);
+      if (type === 'progress') {
+        const { groupsProcessed: processed, totalGroups: total, currentGroup } = event.data;
+        setGroupsProcessed(processed);
+        setTotalGroups(total);
+        setProgressMessage(`Processing group: ${currentGroup} (${processed}/${total})`);
+      } else if (type === 'complete') {
+        const { polygons: generatedPolygons } = event.data;
 
-        try {
-          const hull = concaveman(coordinates, concavity, 0);
+        onPolygonsGenerated(generatedPolygons);
+        setLastGeneratedCount(generatedPolygons.length);
+        setIsGenerating(false);
+        setProgressMessage("");
 
-          // Validate hull has at least 3 vertices
-          if (hull.length < 3) {
-            console.warn(`Group ${groupId} generated invalid hull with ${hull.length} vertices, skipping`);
-            return;
-          }
+        toast({
+          title: "Success",
+          description: `Generated ${generatedPolygons.length} polygon${generatedPolygons.length !== 1 ? 's' : ''}`,
+        });
 
-          // Verify all coordinates are valid numbers
-          const validHull = hull.every(coord =>
-            Array.isArray(coord) &&
-            coord.length === 2 &&
-            Number.isFinite(coord[0]) &&
-            Number.isFinite(coord[1])
-          );
-          if (!validHull) {
-            console.warn(`Group ${groupId} generated hull with invalid coordinates, skipping`);
-            return;
-          }
+        // Cleanup
+        worker.terminate();
+        polygonWorkerRef.current = null;
+      } else if (type === 'error') {
+        const errorMsg = event.data.message || "Failed to generate polygons";
 
-          // Aggregate all CSV attributes from the points in this group
-          const aggregatedProperties: Record<string, any> = {
-            groupId,
-            pointCount: groupPoints.length,
-          };
+        toast({
+          title: "Error",
+          description: errorMsg,
+          variant: "destructive",
+        });
 
-          // Collect all unique attributes from the points
-          // For each attribute, if all points have the same value, use it
-          // Otherwise, collect unique values or use the first value
-          const firstPoint = groupPoints[0];
-          Object.keys(firstPoint).forEach(key => {
-            // Skip coordinate and id fields
-            if (['id', 'longitude', 'latitude'].includes(key)) return;
+        setIsGenerating(false);
+        setProgressMessage("");
 
-            // Check if all points have the same value for this attribute
-            const values = groupPoints.map(p => (p as any)[key]);
-            const uniqueValues = Array.from(new Set(values));
+        // Cleanup
+        worker.terminate();
+        polygonWorkerRef.current = null;
+      }
+    };
 
-            if (uniqueValues.length === 1) {
-              // All points have the same value
-              aggregatedProperties[key] = uniqueValues[0];
-            } else {
-              // Multiple values - store the first one and add a count
-              aggregatedProperties[key] = uniqueValues[0];
-              aggregatedProperties[`${key}_unique_count`] = uniqueValues.length;
-            }
-          });
-
-          generatedPolygons.push({
-            id: `polygon-${groupId}`,
-            activityGroupId: groupId,
-            coordinates: hull as [number, number][],
-            properties: aggregatedProperties,
-          });
-        } catch (err) {
-          console.error(`Failed to generate polygon for group ${groupId}:`, err);
-        }
-      });
-
-      onPolygonsGenerated(generatedPolygons);
-      setLastGeneratedCount(generatedPolygons.length);
+    worker.onerror = (error) => {
       toast({
-        title: "Success",
-        description: `Generated ${generatedPolygons.length} polygon${generatedPolygons.length !== 1 ? 's' : ''}`,
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
+        title: "Worker Error",
         description: error.message || "Failed to generate polygons",
         variant: "destructive",
       });
-    } finally {
+
       setIsGenerating(false);
-    }
+      setProgressMessage("");
+
+      // Cleanup
+      worker.terminate();
+      polygonWorkerRef.current = null;
+    };
+
+    // Start processing
+    worker.postMessage({
+      type: 'generate',
+      points,
+      concavity,
+      groupField,
+    });
   };
 
   const handleExportShapefile = () => {
@@ -390,6 +385,13 @@ export function ControlPanel({
           <Shapes className="w-4 h-4 mr-2" />
           {isGenerating ? "Generating..." : "Generate Polygons"}
         </Button>
+
+        {isGenerating && progressMessage && (
+          <div className="flex items-start gap-2 p-3 bg-primary/10 rounded-lg text-xs text-foreground">
+            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mt-0.5" />
+            <p>{progressMessage}</p>
+          </div>
+        )}
 
         {lastGeneratedCount > 0 && (
           <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
