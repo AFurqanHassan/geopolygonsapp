@@ -80,7 +80,7 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
           const estimatedProgress = Math.min(95, (rows / 1000000) * 100);
           setProgress(estimatedProgress);
         } else if (type === 'complete') {
-          const { errors } = event.data;
+          const { errors, detectedColumns } = event.data;
 
           if (accumulatedPoints.length === 0) {
             const errorMsg = `No valid points found. ${errors.length > 0 ? 'Issues: ' + errors.slice(0, 3).join('; ') : ''}`;
@@ -90,6 +90,21 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
             setIsProcessing(false);
             setProgress(0);
             return;
+          }
+
+          // Show info about detected columns
+          if (detectedColumns) {
+            const colInfo = [
+              detectedColumns.longitude ? `Lon: ${detectedColumns.longitude}` : null,
+              detectedColumns.latitude ? `Lat: ${detectedColumns.latitude}` : null,
+              detectedColumns.group ? `Group: ${detectedColumns.group}` : null,
+            ].filter(Boolean).join(', ');
+
+            toast({
+              title: "Columns detected",
+              description: colInfo || 'Using default mapping',
+              variant: "default",
+            });
           }
 
           // Show warning if some rows were skipped
@@ -192,7 +207,7 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-foreground">Upload CSV</h2>
         <p className="text-sm text-muted-foreground">
-          CSV should contain: longitude, latitude, and any grouping columns (e.g., ActivityGroupId, FirstName, etc.)
+          Upload any CSV with coordinate columns. Column names are auto-detected (e.g., lon/lat, longitude/latitude, x/y, easting/northing).
         </p>
       </div>
 

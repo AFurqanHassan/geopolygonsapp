@@ -11,15 +11,25 @@ interface DataTableProps {
 export function DataTable({ points }: DataTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
+  // Get all available columns from the first point (excluding internal ones)
+  const columns = useMemo(() => {
+    if (points.length === 0) return [];
+    const firstPoint = points[0];
+    return Object.keys(firstPoint).filter(key => !['id'].includes(key));
+  }, [points]);
+
   const filteredPoints = useMemo(() => {
     if (!searchTerm) return points;
 
     const term = searchTerm.toLowerCase();
     return points.filter(point =>
       point.id.toLowerCase().includes(term) ||
-      point.activityGroupId.toLowerCase().includes(term) ||
       point.latitude.toString().includes(term) ||
-      point.longitude.toString().includes(term)
+      point.longitude.toString().includes(term) ||
+      // Search in all other columns
+      Object.keys(point).some(key =>
+        String(point[key] || '').toLowerCase().includes(term)
+      )
     );
   }, [points, searchTerm]);
 
@@ -83,15 +93,11 @@ export function DataTable({ points }: DataTableProps) {
                 <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   ID
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Latitude
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Longitude
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Group
-                </th>
+                {columns.map(col => (
+                  <th key={col} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                    {col}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -104,17 +110,13 @@ export function DataTable({ points }: DataTableProps) {
                   <td className="px-4 py-3 text-sm text-foreground whitespace-nowrap">
                     {point.id}
                   </td>
-                  <td className="px-4 py-3 text-sm font-mono text-foreground whitespace-nowrap">
-                    {point.latitude.toFixed(6)}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-mono text-foreground whitespace-nowrap">
-                    {point.longitude.toFixed(6)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-foreground whitespace-nowrap">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary/10 text-primary">
-                      {point.activityGroupId}
-                    </span>
-                  </td>
+                  {columns.map(col => (
+                    <td key={col} className="px-4 py-3 text-sm text-foreground whitespace-nowrap">
+                      {col === 'latitude' || col === 'longitude'
+                        ? (point[col] as number).toFixed(6)
+                        : String(point[col] ?? '')}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>

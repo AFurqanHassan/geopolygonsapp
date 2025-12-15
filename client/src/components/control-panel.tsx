@@ -21,7 +21,10 @@ interface ControlPanelProps {
   onConcavityChange: (value: number) => void;
   onPolygonsGenerated: (polygons: Polygon[]) => void;
   polygons: Polygon[];
+
   onResetState?: () => void;
+  padding: number;
+  onPaddingChange: (value: number) => void;
 }
 
 export function ControlPanel({
@@ -30,7 +33,10 @@ export function ControlPanel({
   onConcavityChange,
   onPolygonsGenerated,
   polygons,
+
   onResetState,
+  padding,
+  onPaddingChange,
 }: ControlPanelProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [lastGeneratedCount, setLastGeneratedCount] = useState(0);
@@ -58,24 +64,27 @@ export function ControlPanel({
     };
   }, []);
 
-  const [groupField, setGroupField] = useState<string>('activityGroupId');
+  const [groupField, setGroupField] = useState<string>('');
 
   // Extract available columns from the first point (if available)
   const availableColumns = React.useMemo(() => {
-    if (points.length === 0) return ['activityGroupId'];
+    if (points.length === 0) return [];
 
     const firstPoint = points[0];
+    // Get all columns except internal ones (id, longitude, latitude)
     const columns = Object.keys(firstPoint).filter(
       key => !['id', 'longitude', 'latitude'].includes(key)
     );
 
-    // Ensure activityGroupId is always available as default
-    if (!columns.includes('activityGroupId')) {
-      columns.unshift('activityGroupId');
-    }
-
     return columns;
   }, [points]);
+
+  // Auto-set groupField to first available column when points change
+  React.useEffect(() => {
+    if (availableColumns.length > 0 && !groupField) {
+      setGroupField(availableColumns[0]);
+    }
+  }, [availableColumns, groupField]);
 
   const handleGeneratePolygons = () => {
     if (points.length === 0) {
@@ -167,8 +176,12 @@ export function ControlPanel({
       points,
       concavity,
       groupField,
+      method,
+      padding,
     });
   };
+
+  const [method, setMethod] = useState<'concave' | 'simplified'>('concave');
 
   const handleExportShapefile = () => {
     if (polygons.length === 0) {
@@ -210,7 +223,8 @@ export function ControlPanel({
             },
             properties: {
               // Export all properties from the polygon (includes all CSV attributes)
-              activityGroupId: polygon.activityGroupId,
+              groupId: polygon.groupId,
+              groupField: polygon.groupField,
               id: polygon.id,
               ...(polygon.properties || {}),
             },
@@ -284,7 +298,8 @@ export function ControlPanel({
             },
             properties: {
               // Export all properties from the polygon (includes all CSV attributes)
-              activityGroupId: polygon.activityGroupId,
+              groupId: polygon.groupId,
+              groupField: polygon.groupField,
               id: polygon.id,
               ...(polygon.properties || {}),
             },
@@ -360,6 +375,30 @@ export function ControlPanel({
 
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">
+            Generation Method
+          </label>
+          <Select
+            value={method}
+            onValueChange={(v: 'concave' | 'simplified') => setMethod(v)}
+            disabled={points.length === 0}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select method" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="concave">Concave Hull (Basic)</SelectItem>
+              <SelectItem value="simplified">Simplified (Remove Extra Vertices)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {method === 'concave'
+              ? "Basic concave hull around points"
+              : "Concave hull + Douglas-Peucker simplification (removes collinear points)"}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">
             Concavity: {concavity.toFixed(2)}
           </label>
           <Slider
@@ -376,75 +415,97 @@ export function ControlPanel({
           </p>
         </div>
 
-        <Button
-          onClick={handleGeneratePolygons}
-          disabled={points.length === 0 || isGenerating}
-          className="w-full"
-          data-testid="button-generate-polygons"
-        >
-          <Shapes className="w-4 h-4 mr-2" />
-          {isGenerating ? "Generating..." : "Generate Polygons"}
-        </Button>
-
-        {isGenerating && progressMessage && (
-          <div className="flex items-start gap-2 p-3 bg-primary/10 rounded-lg text-xs text-foreground">
-            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mt-0.5" />
-            <p>{progressMessage}</p>
-          </div>
-        )}
-
-        {lastGeneratedCount > 0 && (
-          <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <p>
-              Generated {lastGeneratedCount} polygon{lastGeneratedCount !== 1 ? 's' : ''} from {points.length} point{points.length !== 1 ? 's' : ''}
+        {method === 'simplified' && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">
+              Simplification Tolerance: {padding.toFixed(4)}
+            </label>
+            <Slider
+              value={[padding]}
+              onValueChange={(values) => onPaddingChange(values[0])}
+              min={0.00001}
+              max={0.001}
+              step={0.00001}
+              className="w-full"
+              disabled={points.length === 0}
+            />
+            <p className="text-xs text-muted-foreground">
+              Higher = more vertices removed needed for straight lines
             </p>
           </div>
         )}
-      </div>
 
-      <Separator />
-
-      {/* Export Section */}
-      <div className="space-y-4">
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold text-foreground">Export</h2>
-          <p className="text-sm text-muted-foreground">
-            Download polygons as Shapefile or GeoJSON
-          </p>
+          <Button
+            onClick={handleGeneratePolygons}
+            disabled={points.length === 0 || isGenerating}
+            className="w-full"
+            data-testid="button-generate-polygons"
+          >
+            <Shapes className="w-4 h-4 mr-2" />
+            {isGenerating ? "Generating..." : "Generate Polygons"}
+          </Button>
+
+          {isGenerating && progressMessage && (
+            <div className="flex items-start gap-2 p-3 bg-primary/10 rounded-lg text-xs text-foreground">
+              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mt-0.5" />
+              <p>{progressMessage}</p>
+            </div>
+          )}
+
+          {lastGeneratedCount > 0 && (
+            <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <p>
+                Generated {lastGeneratedCount} polygon{lastGeneratedCount !== 1 ? 's' : ''} from {points.length} point{points.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          )}
         </div>
 
-        <Button
-          onClick={handleExportShapefile}
-          disabled={polygons.length === 0}
-          variant="outline"
-          className="w-full"
-          data-testid="button-export-shapefile"
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export Shapefile
-        </Button>
+        <Separator />
 
-        <Button
-          onClick={handleExportGeoJSON}
-          disabled={polygons.length === 0}
-          variant="outline"
-          className="w-full"
-          data-testid="button-export-geojson"
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export GeoJSON
-        </Button>
-
-        {polygons.length > 0 && (
-          <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <p>
-              Shapefile: .shp, .shx, .dbf, .prj files | GeoJSON: single .geojson file
+        {/* Export Section */}
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold text-foreground">Export</h2>
+            <p className="text-sm text-muted-foreground">
+              Download polygons as Shapefile or GeoJSON
             </p>
           </div>
-        )}
-      </div>
-    </div >
+
+          <Button
+            onClick={handleExportShapefile}
+            disabled={polygons.length === 0}
+            variant="outline"
+            className="w-full"
+            data-testid="button-export-shapefile"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export Shapefile
+          </Button>
+
+          <Button
+            onClick={handleExportGeoJSON}
+            disabled={polygons.length === 0}
+            variant="outline"
+            className="w-full"
+            data-testid="button-export-geojson"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export GeoJSON
+          </Button>
+
+          {polygons.length > 0 && (
+            <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <p>
+                Shapefile: .shp, .shx, .dbf, .prj files | GeoJSON: single .geojson file
+              </p>
+            </div>
+          )}
+        </div>
+      </div >
+    </div>
   );
 }

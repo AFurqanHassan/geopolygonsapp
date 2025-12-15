@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { getColorForGroupId } from "@/components/map-view";
+
+import { getColorForGroupId } from "@/lib/colors";
 
 interface MapLegendProps {
   groupIds: string[];

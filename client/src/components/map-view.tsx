@@ -20,27 +20,8 @@ interface MapViewProps {
   selectedGroupIds: Set<string>;
 }
 
-// Color palette for ActivityGroupIds
-const COLOR_PALETTE = [
-  "#2563eb", // blue
-  "#059669", // green
-  "#d97706", // orange
-  "#9333ea", // purple
-  "#dc2626", // red
-  "#0891b2", // cyan
-  "#ea580c", // orange-red
-  "#7c3aed", // violet
-  "#0d9488", // teal
-  "#c026d3", // fuchsia
-];
+import { getColorForGroupId } from "@/lib/colors";
 
-export function getColorForGroupId(groupId: string): string {
-  const hash = groupId.split("").reduce((acc, char) => {
-    return char.charCodeAt(0) + ((acc << 5) - acc);
-  }, 0);
-  const index = Math.abs(hash) % COLOR_PALETTE.length;
-  return COLOR_PALETTE[index];
-}
 
 export function MapView({ points, polygons, showPoints, showPolygons, selectedGroupIds }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -59,7 +40,7 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
     });
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      attribution: '&copy; <a href="https://github.com/AFurqanHassan">AfurqanHassan</a>',
       maxZoom: 19,
     }).addTo(map);
 
@@ -107,11 +88,16 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
       }
 
       pointsToRender.forEach(point => {
-        if (selectedGroupIds.size > 0 && !selectedGroupIds.has(point.activityGroupId)) {
+        // For points, use the first available property for grouping/coloring
+        const pointGroupId = Object.keys(point).find(k => !['id', 'longitude', 'latitude'].includes(k))
+          ? String(point[Object.keys(point).find(k => !['id', 'longitude', 'latitude'].includes(k))!] || 'default')
+          : 'default';
+
+        if (selectedGroupIds.size > 0 && !selectedGroupIds.has(pointGroupId)) {
           return;
         }
 
-        const color = getColorForGroupId(point.activityGroupId);
+        const color = getColorForGroupId(pointGroupId);
         const marker = L.circleMarker([point.latitude, point.longitude], {
           radius: 5,
           fillColor: color,
@@ -127,7 +113,6 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
             <div class="font-mono text-xs space-y-0.5">
               <div>Lat: ${point.latitude.toFixed(6)}</div>
               <div>Lng: ${point.longitude.toFixed(6)}</div>
-              <div>Group: ${point.activityGroupId}</div>
             </div>
           </div>
         `);
@@ -136,9 +121,7 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
         bounds.extend([point.latitude, point.longitude]);
       });
 
-      if (bounds.isValid()) {
-        mapRef.current.fitBounds(bounds, { padding: [50, 50] });
-      }
+
     }
   }, [points, showPoints, selectedGroupIds, toast]);
 
@@ -150,11 +133,11 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
 
     if (showPolygons && polygons.length > 0) {
       polygons.forEach(polygon => {
-        if (selectedGroupIds.size > 0 && !selectedGroupIds.has(polygon.activityGroupId)) {
+        if (selectedGroupIds.size > 0 && !selectedGroupIds.has(polygon.groupId)) {
           return;
         }
 
-        const color = getColorForGroupId(polygon.activityGroupId);
+        const color = getColorForGroupId(polygon.groupId);
 
         // Convert [lng, lat] to [lat, lng] for Leaflet
         const latLngs = polygon.coordinates.map(coord => [coord[1], coord[0]] as [number, number]);
@@ -171,7 +154,7 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
           <div class="text-xs">
             <div class="font-semibold mb-1">Polygon ${polygon.id}</div>
             <div class="space-y-0.5">
-              <div>Group: ${polygon.activityGroupId}</div>
+              <div>Group: ${polygon.groupId}</div>
               <div>Points: ${polygon.properties?.pointCount || polygon.coordinates.length}</div>
               <div>Vertices: ${polygon.coordinates.length}</div>
             </div>
@@ -181,7 +164,61 @@ export function MapView({ points, polygons, showPoints, showPolygons, selectedGr
         polygonLayer.addTo(polygonLayersRef.current!);
       });
     }
+
   }, [polygons, showPolygons, selectedGroupIds]);
+
+  // Auto-zoom to fit visible content (points + polygons) when selection/data changes
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Use a small timeout to let the map render settling happen, ensuring smooth flight
+    const timer = setTimeout(() => {
+      if (!mapRef.current) return;
+
+      const bounds = L.latLngBounds([]);
+      let hasVisibleItems = false;
+
+      // Add visible polygons to bounds
+      if (showPolygons && polygons.length > 0) {
+        polygons.forEach(polygon => {
+          if (selectedGroupIds.size > 0 && !selectedGroupIds.has(polygon.groupId)) return;
+
+          polygon.coordinates.forEach(coord => {
+            // coord is [lng, lat], bounds.extend takes [lat, lng]
+            bounds.extend([coord[1], coord[0]]);
+            hasVisibleItems = true;
+          });
+        });
+      }
+
+      // Add visible points to bounds
+      // We prioritize polygons for bounds if both are present to avoid noise from scattered points?
+      // No, user wants to see what is selected.
+      if (showPoints && points.length > 0) {
+        points.forEach(point => {
+          const pointGroupId = Object.keys(point).find(k => !['id', 'longitude', 'latitude'].includes(k))
+            ? String(point[Object.keys(point).find(k => !['id', 'longitude', 'latitude'].includes(k))!] || 'default')
+            : 'default';
+
+          if (selectedGroupIds.size > 0 && !selectedGroupIds.has(pointGroupId)) return;
+
+          bounds.extend([point.latitude, point.longitude]);
+          hasVisibleItems = true;
+        });
+      }
+
+      if (hasVisibleItems && bounds.isValid()) {
+        mapRef.current.flyToBounds(bounds, {
+          padding: [50, 50],
+          duration: 1.5,
+          easeLinearity: 0.25
+        });
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+
+  }, [points, polygons, showPoints, showPolygons, selectedGroupIds]);
 
   return (
     <div

@@ -12,13 +12,15 @@ export default function MapPage() {
   const [points, setPoints] = useState<CSVPoint[]>([]);
   const [polygons, setPolygons] = useState<Polygon[]>([]);
   const [concavity, setConcavity] = useState(2);
+  const [padding, setPadding] = useState(0.2);
   const [showPoints, setShowPoints] = useState(true);
   const [showPolygons, setShowPolygons] = useState(true);
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
-  const uniqueGroupIds = Array.from(new Set(points.map(p => p.activityGroupId)));
+  // Get unique group IDs from polygons (after generation)
+  const uniqueGroupIds = Array.from(new Set(polygons.map(p => p.groupId)));
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
@@ -58,6 +60,8 @@ export default function MapPage() {
                   setPolygons([]);
                   setSelectedGroupIds(new Set());
                 }}
+                padding={padding}
+                onPaddingChange={setPadding}
               />
             </div>
           </div>

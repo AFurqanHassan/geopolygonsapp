@@ -5,7 +5,6 @@ export const csvPointSchema = z.object({
   id: z.string(),
   longitude: z.number(),
   latitude: z.number(),
-  activityGroupId: z.string(),
 }).passthrough(); // Allow additional fields from CSV
 
 export type CSVPoint = z.infer<typeof csvPointSchema>;
@@ -13,7 +12,8 @@ export type CSVPoint = z.infer<typeof csvPointSchema>;
 // Polygon Schema
 export const polygonSchema = z.object({
   id: z.string(),
-  activityGroupId: z.string(),
+  groupId: z.string(), // The group value (from whichever column user selected)
+  groupField: z.string().optional(), // The column name used for grouping
   coordinates: z.array(z.tuple([z.number(), z.number()])),
   properties: z.record(z.unknown()).optional(),
 });
