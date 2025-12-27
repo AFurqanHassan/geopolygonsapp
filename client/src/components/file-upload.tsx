@@ -250,7 +250,7 @@ export function FileUpload({ onPointsLoaded, onError, onClearData }: FileUploadP
 
       {/* Uploaded File Display */}
       {uploadedFile && (
-        <Card className="p-3">
+        <Card className="p-3 bg-black/5 backdrop-blur-md border-black/5 shadow-inner">
           <div className="flex items-start gap-3">
             <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center flex-shrink-0">
               <FileText className="w-4 h-4 text-primary" />

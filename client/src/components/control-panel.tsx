@@ -12,8 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Download, Shapes, AlertCircle } from "lucide-react";
+import { Download, Shapes, AlertCircle, Wind, CloudRain, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface ControlPanelProps {
   points: CSVPoint[];
@@ -37,6 +38,7 @@ export function ControlPanel({
   onResetState,
   padding,
   onPaddingChange,
+  
 }: ControlPanelProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [lastGeneratedCount, setLastGeneratedCount] = useState(0);
@@ -447,14 +449,14 @@ export function ControlPanel({
           </Button>
 
           {isGenerating && progressMessage && (
-            <div className="flex items-start gap-2 p-3 bg-primary/10 rounded-lg text-xs text-foreground">
+            <div className="flex items-start gap-2 p-3 bg-primary/10 backdrop-blur-md rounded-lg text-xs text-foreground border border-black/5 shadow-sm">
               <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mt-0.5" />
               <p>{progressMessage}</p>
             </div>
           )}
 
           {lastGeneratedCount > 0 && (
-            <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
+            <div className="flex items-start gap-2 p-3 bg-black/5 backdrop-blur-md rounded-lg text-xs text-muted-foreground border border-black/5 shadow-sm">
               <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <p>
                 Generated {lastGeneratedCount} polygon{lastGeneratedCount !== 1 ? 's' : ''} from {points.length} point{points.length !== 1 ? 's' : ''}
@@ -463,7 +465,7 @@ export function ControlPanel({
           )}
         </div>
 
-        <Separator />
+        <Separator className="bg-black/5" />
 
         {/* Export Section */}
         <div className="space-y-4">
@@ -478,7 +480,7 @@ export function ControlPanel({
             onClick={handleExportShapefile}
             disabled={polygons.length === 0}
             variant="outline"
-            className="w-full"
+            className="w-full bg-black/5 hover:bg-black/10 backdrop-blur-sm border-black/5"
             data-testid="button-export-shapefile"
           >
             <Download className="w-4 h-4 mr-2" />
@@ -489,7 +491,7 @@ export function ControlPanel({
             onClick={handleExportGeoJSON}
             disabled={polygons.length === 0}
             variant="outline"
-            className="w-full"
+            className="w-full bg-black/5 hover:bg-black/10 backdrop-blur-sm border-black/5"
             data-testid="button-export-geojson"
           >
             <Download className="w-4 h-4 mr-2" />
@@ -497,7 +499,7 @@ export function ControlPanel({
           </Button>
 
           {polygons.length > 0 && (
-            <div className="flex items-start gap-2 p-3 bg-accent/50 rounded-lg text-xs text-muted-foreground">
+            <div className="flex items-start gap-2 p-3 bg-black/5 backdrop-blur-md rounded-lg text-xs text-muted-foreground border border-black/5 shadow-sm">
               <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <p>
                 Shapefile: .shp, .shx, .dbf, .prj files | GeoJSON: single .geojson file
