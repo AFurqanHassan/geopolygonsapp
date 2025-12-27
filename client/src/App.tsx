@@ -1,11 +1,11 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Router } from "wouter";
 
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import MapPage from "@/pages/map";
 import NotFound from "@/pages/not-found";
 
-function Router() {
+function Routes() {
   return (
     <Switch>
       <Route path="/" component={MapPage} />
@@ -16,10 +16,12 @@ function Router() {
 
 function App() {
   return (
-    <TooltipProvider>
-      <Toaster />
-      <Router />
-    </TooltipProvider>
+    <Router base="/geopolygonsapp">
+      <TooltipProvider>
+        <Toaster />
+        <Routes />
+      </TooltipProvider>
+    </Router>
   );
 }
 
