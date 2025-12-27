@@ -336,46 +336,7 @@ For large datasets, we have a comprehensive optimization plan:
 - Memory usage: < 500MB in browser
 - Concurrent users: 10+ (with Phase 2)
 
-## 🌐 Deployment
 
-The application supports multiple deployment platforms:
-
-### Vercel (Recommended for Client-Side App)
-
-See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for detailed instructions.
-
-```bash
-npm run build
-# Deploy dist/ folder to Vercel
-```
-
-### Railway (Full-Stack with Database)
-
-See [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md) for detailed instructions.
-
-```bash
-# Set environment variables in Railway dashboard
-railway up
-```
-
-### Render
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for Render deployment guide.
-
-### Self-Hosted
-
-```bash
-# Build the application
-npm run build
-
-# Set environment variables
-export NODE_ENV=production
-export PORT=5000
-export DATABASE_URL=your-database-url
-
-# Start the server
-npm start
-```
 
 ## 📚 API Documentation
 
